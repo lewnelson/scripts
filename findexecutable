@@ -1,0 +1,25 @@
+#!/bin/bash
+
+executable=$1
+pathWithSpacesReplaced=$(echo $PATH | sed 's/ /%20/g')
+pathWithSpacesInsteadOfColons=$(echo $pathWithSpacesReplaced | sed 's/:/ /g')
+
+pathsSearched=""
+
+for path in $pathWithSpacesInsteadOfColons; do
+  originalPath=$(echo $path | sed 's/%20/ /g')
+
+  # If we've not already looked in this path, $PATH may contain duplicates and the directory exists
+  if [[ ! $pathsSearched =~ $originalPath ]] && [[ -d $originalPath ]]; then
+    output=$(ls $originalPath | grep $executable)
+    for executableFound in $output; do
+      if [[ $executableFound == $executable ]]; then
+        if [[ ! -z "$executableFound" ]]; then
+          echo "$originalPath/$executableFound"
+        fi
+      fi
+    done
+  fi
+
+  pathsSearched="$pathsSearched $originalPath"
+done

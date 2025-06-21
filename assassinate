@@ -1,0 +1,120 @@
+#!/bin/bash
+
+TITLE="--------------  ASSASSINATE  --------------"
+DESCRIPTION="Kills processes that are bound to a specified TCP port"
+USAGE="Usage: assassinate <port>"
+HELP="$DESCRIPTION\n\n$USAGE\n"
+
+PORT=$1
+
+RED='\033[0;31m'
+NC='\033[0m'
+
+function print_title () {
+  printf "\n"
+  echo "$TITLE"
+  printf "\n"
+  echo "               ..."
+  echo "             ;::::;"
+  echo "           ;::::; :;"
+  echo "         ;:::::'   :;"
+  echo "        ;:::::;     ;."
+  echo "       ,:::::'       ;           OOO"
+  echo "       ::::::;       ;          OOOOO"
+  echo "       ;:::::;       ;         OOOOOOOO"
+  echo "      ,;::::::;     ;'         / OOOOOOO"
+  echo "    ;:::::::::\`. ,,,;.        /  / DOOOOOO"
+  echo "  .';:::::::::::::::::;,     /  /     DOOOO"
+  echo " ,::::::;::::::;;;;::::;,   /  /        DOOO"
+  echo ";\`::::::\`'::::::;;;::::: ,\#/  /          DOOO"
+  echo ":\`:::::::\`;::::::;;::: ;::\#  /            DOOO"
+  echo "::\`:::::::\`;:::::::: ;::::\# /              DOO"
+  echo "\`:\`:::::::\`;:::::: ;::::::#/               DOO"
+  echo " :::\`:::::::\`;; ;:::::::::##                OO"
+  echo " ::::\`:::::::\`;::::::::;:::#                OO"
+  echo " \`:::::\`::::::::::::;'\`:;::\#                O"
+  echo "  \`:::::\`::::::::;' /  / \`:#"
+  echo "   ::::::\`:::::;'  /  /   \`#"
+  printf "\n\n"
+}
+
+function print_help () {
+  printf "$HELP"
+  printf "\n"
+}
+
+function print_error () {
+  MESSAGE=$1
+  printf "$RED\n"
+  printf "ERROR:\n"
+  printf "$MESSAGE\n\n"
+  printf "$NC"
+  print_help
+}
+
+function print_outcome () {
+  ASSASSINS=("Mrs_Peacock" "Colonel_Mustard" "Reverend_Green" "Professor_Plum" "Miss_Scarlett" "Mrs_White")
+  RAW_ASSASSIN=${ASSASSINS[$(($RANDOM % ${#ASSASSINS[@]}))]}
+  ASSASSIN=$(echo "$RAW_ASSASSIN" | sed s/_/\ /g)
+
+  LOCATIONS=("ballroom" "billiard_room" "conservatory" "dining_room" "hall" "kitchen" "lounge" "library" "study")
+  RAW_LOCATION=${LOCATIONS[$(($RANDOM % ${#LOCATIONS[@]}))]}
+  LOCATION=$(echo "$RAW_LOCATION" | sed s/_/\ /g)
+
+  WEAPONS=("candlestick" "dagger" "lead_pipe" "revolver" "rope" "wrench")
+  RAW_WEAPONS=${WEAPONS[$(($RANDOM % ${#WEAPONS[@]}))]}
+  WEAPON=$(echo "$RAW_WEAPONS" | sed s/_/\ /g)
+
+  printf "It was $ASSASSIN, in the $LOCATION, with the $WEAPON\n"
+}
+
+# Validate port input
+if ! [[ $PORT =~ [0-9]+ ]]; then
+  print_error "Invalid port <$PORT> expected number"
+  exit 1
+fi
+
+print_title
+
+# Find the PIDS
+PROCESSES=$(lsof -i tcp:$PORT)
+PIDS=$(echo "$PROCESSES" | grep \d | sed -e 's/[^ ]*[ ]*\([[:digit:]]*\).*/\1/')
+PIDS_STRING=$(printf "$PIDS" | tr '\n' ',')
+IFS=',' read -r -a ALL_PIDS <<< "$PIDS_STRING"
+PIDS_ARRAY=()
+
+# Deduplicate PIDs
+for PID in "${ALL_PIDS[@]}"
+do
+  :
+  if [[ ! "${PIDS_ARRAY[*]}" =~ "${PID}" ]]; then
+    PIDS_ARRAY+=($PID)
+  fi
+done
+
+if [[ ${#PIDS_ARRAY[@]} -eq 1 ]]; then
+  echo "Assassinating ${#PIDS_ARRAY[@]} process bound to port $PORT"
+elif [[ ${#PIDS_ARRAY[@]} -eq 0 ]]; then
+  echo "No assassination targets found"
+  printf "\n"
+  exit 0
+else
+  echo "Assassinating ${#PIDS_ARRAY[@]} processes bound to port $PORT"
+fi
+
+printf "\n"
+
+for PID in "${PIDS_ARRAY[@]}"
+do
+  :
+  kill -9 $PID
+done
+
+echo "Assassination complete:"
+
+printf "\n"
+echo "$PROCESSES"
+
+printf "\n"
+print_outcome
+printf "\n"

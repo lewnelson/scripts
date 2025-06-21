@@ -1,0 +1,14 @@
+#!/bin/bash
+
+PORT=$1
+
+PROCESSES=$(lsof -i tcp:$PORT)
+
+while [ -z "$(lsof -i tcp:$PORT)" ]; do
+  sleep 1
+  echo "Still waiting"
+done
+
+say "Process ready and listening on port $PORT"
+exit 0
+

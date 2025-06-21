@@ -1,0 +1,5 @@
+#!/bin/bash
+
+UUID=$(uuidgen | awk '{print tolower($0)}')
+pbcopy < <(printf $UUID)
+echo $UUID

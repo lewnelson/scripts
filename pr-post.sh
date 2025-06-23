@@ -1,6 +1,5 @@
-# Author - Henry Black https://github.com/blackhaj
-
 #!/bin/zsh
+# Author - Henry Black https://github.com/blackhaj
 
 # Prerequisites:
 # - fzf needs to be installed

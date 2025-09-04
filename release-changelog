@@ -1,0 +1,3 @@
+#!/bin/zsh
+
+git log --oneline --merges | sed -n "/#$2/,/#$1/p" | sed '$d' | sed 's/[^#]*#\([^ ]*\).*/\[\1\]\(https:\/\/github\.com\/mazedesignhq\/maze-monorepo\/pull\/\1)/'

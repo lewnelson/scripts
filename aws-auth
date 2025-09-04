@@ -1,0 +1,22 @@
+#!/bin/sh
+
+set -e
+
+mfa_arn=arn:aws:iam::184487594157:mfa/lewis_nelson
+
+response=$(aws sts get-session-token \
+  --serial-number $mfa_arn \
+  --output text \
+  --query 'Credentials.[AccessKeyId,SecretAccessKey,SessionToken]' \
+  --token-code $2)
+
+IFS=$'\t'
+
+read -r -a keys <<< "$response"
+
+export AWS_ACCESS_KEY_ID=${keys[0]}
+export AWS_SECRET_ACCESS_KEY=${keys[1]}
+export AWS_SESSION_TOKEN=${keys[2]}
+
+eval "$1"
+

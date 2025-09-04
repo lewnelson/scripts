@@ -1,0 +1,111 @@
+#!/bin/bash
+
+pritunl() {
+  # you can find the profile id by running `/Applications/Pritunl.app/Contents/Resources/pritunl-client list`
+  mainProfileId="fxqltvhvy12sbxqn"
+  engineeringProfileId="nfkdusu4i9j5l1pe"
+
+  client() {
+    # change this to point to your Pritunl.app if this is not the right path
+    /Applications/Pritunl.app/Contents/Resources/pritunl-client "$@"
+  }
+
+  disconnect() {
+    activeProfileId=$1
+    activeProfileName=$2
+    if [ -z "$activeProfileId" ]; then
+      echo "No active profile found"
+      exit 0
+    fi
+
+    activeProfileName=""
+    if [[ $activeProfileId == $mainProfileId ]]; then
+      activeProfileName="Main"
+    else
+      activeProfileName="Engineering"
+    fi
+
+    client stop $activeProfileId
+    echo "Disconnected from $activeProfileName, you were connected for $activeProfileTime"
+  }
+
+  profileId="$engineeringProfileId"
+  activeProfileId=$(client list | grep Active | sed 's/| \([^ ]*\).*/\1/')
+  activeProfileTime=$(client list | grep Active | sed 's/|[^|]*|[^|]*|[^|]*|[^|]*| \([^|]*\).*/\1/' | sed 's/^[ \t]*//;s/[ \t]*$//')
+
+  if [[ $2 == "main" ]]; then
+    profileId="$mainProfileId"
+  fi
+
+  if  [[ $1 == 'start' ]]; then
+    activeProfileName=""
+    if [[ $activeProfileId == $mainProfileId ]]; then
+      activeProfileName="Main"
+    else
+      activeProfileName="Engineering"
+    fi
+
+    if [[ $profileId == $activeProfileId ]]; then
+      echo "You are already connected to $activeProfileName"
+      exit 0
+    elif [[ ! -z "$activeProfileId" ]]; then
+      disconnect $activeProfileId
+    fi
+
+    # set the "Pritunl" here to whatever you have your Pritunl under in 1pass
+    otp=$(op item get Pritunl --otp --account WSVG7UU5BFAA7LJTWB52ZJNPOE)
+    client start $profileId -p $otp
+    activeProfileName=""
+    if [[ $profileId == $mainProfileId ]]; then
+      activeProfileName="Main"
+    else
+      activeProfileName="Engineering"
+    fi
+
+    echo "Connected to $activeProfileName"
+  elif  [[ $1 == 'stop' ]]; then
+    disconnect $activeProfileId
+    echo ""
+    if [[ $activeProfileId == $mainProfileId ]]; then
+      echo "Run 'pritunl start main' to reconnect"
+    else
+      echo "Run 'pritunl start' to reconnect"
+    fi
+    echo ""
+  elif [[ $1 == 'status' ]]; then
+    activeProfile=$(client list | grep Active)
+    status=""
+    if [ -z "$activeProfile" ]; then
+      status="Disconnected"
+    else
+      if [[ $activeProfileId == $mainProfileId ]]; then
+        status="Connected to Main for $activeProfileTime"
+      else
+        status="Connected to Engineering for $activeProfileTime"
+      fi
+    fi
+
+    echo "$status"
+
+    if [ -z "$activeProfile" ]; then
+      echo ""
+      echo "Run 'pritunl start' to connect"
+      echo ""
+    else
+      echo ""
+      echo "Run 'pritunl stop' to disconnect"
+      echo ""
+    fi
+  else
+    validCommands="add completion disable enable help list logs remove version watch"
+    if [[ $validCommands =~ (^|[[:space:]])$1($|[[:space:]]) ]]; then
+      client "$@"
+    else
+      client help
+      echo "Invalid command '$1'"
+      exit 1
+    fi
+  fi
+}
+
+pritunl "$@"

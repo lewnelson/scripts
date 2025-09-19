@@ -6,10 +6,11 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/promote-functions.sh"
 
 function usage() {
-    echo "Usage: $0 [--dry-run] <stage|main>"
-    echo "  --dry-run: Show what would be done without making changes"
-    echo "  stage:     Promote from develop to stage"
-    echo "  main:      Promote from stage to main"
+    echo "Usage: $0 [--dry-run] [--linear-team=<team>] <stage|main>"
+    echo "  --dry-run:             Show what would be done without making changes"
+    echo "  --linear-team=<team>:  Linear team name for ticket links (required)"
+    echo "  stage:                 Promote from develop to stage"
+    echo "  main:                  Promote from stage to main"
     exit 1
 }
 
@@ -20,12 +21,17 @@ function get_repo_name() {
 
 # Parse arguments
 DRY_RUN=false
+LINEAR_TEAM=""
 target=""
 
 while [[ $# -gt 0 ]]; do
     case $1 in
         --dry-run)
             DRY_RUN=true
+            shift
+            ;;
+        --linear-team=*)
+            LINEAR_TEAM="${1#*=}"
             shift
             ;;
         --help|-h)
@@ -45,6 +51,12 @@ done
 # Validate arguments
 if [ -z "$target" ]; then
     echo "Error: Target (stage|main) is required"
+    usage
+fi
+
+if [ -z "$LINEAR_TEAM" ]; then
+    echo "Error: --linear-team is required"
+    echo "Example: $0 --linear-team=mazedesignhq stage"
     usage
 fi
 
@@ -90,23 +102,71 @@ if [ -z "$commits_in_promotion" ]; then
     exit 0
 fi
 
-echo "Found $(echo "$commits_in_promotion" | wc -l | tr -d ' ') commits to promote"
+echo "Finding merged PRs for promotion..."
 
-# Extract all tickets from commit messages
-all_tickets=""
+# Create temporary files for PR data
+pr_data_file=$(mktemp)
+tickets_file=$(mktemp)
+
+# Find all merged PRs in the commit range
 while IFS= read -r line; do
     if [ -n "$line" ]; then
-        commit_msg=$(echo "$line" | cut -d' ' -f2-)
-        tickets=$(extract_linear_tickets "$commit_msg")
-        if [ -n "$tickets" ]; then
-            all_tickets="$all_tickets $tickets"
+        commit_hash=$(echo "$line" | cut -d' ' -f1)
+        
+        # Find PR that contains this commit
+        pr_number=$(gh pr list --repo "$repo_name" --search "$commit_hash" --state merged --json number --jq '.[0].number' 2>/dev/null || echo "")
+        
+        if [ -n "$pr_number" ] && ! grep -q "^$pr_number:" "$pr_data_file" 2>/dev/null; then
+            echo "Processing PR #$pr_number..."
+            
+            # Get PR details
+            pr_title=$(gh pr view "$pr_number" --repo "$repo_name" --json title --jq '.title')
+            pr_body=$(gh pr view "$pr_number" --repo "$repo_name" --json body --jq '.body')
+            
+            # Get all commits from this PR to determine type
+            pr_commits=$(gh pr view "$pr_number" --repo "$repo_name" --json commits --jq '.commits[].messageHeadline')
+            
+            # Determine PR type based on commits (highest priority wins)
+            pr_type="chore"
+            best_priority=100
+            
+            while IFS= read -r commit_msg; do
+                if [ -n "$commit_msg" ]; then
+                    commit_type=$(get_commit_type "$commit_msg")
+                    commit_priority=$(get_pr_priority "$commit_type")
+                    
+                    if [ "$commit_priority" -lt "$best_priority" ]; then
+                        pr_type="$commit_type"
+                        best_priority="$commit_priority"
+                    fi
+                fi
+            done <<< "$pr_commits"
+            
+            # Extract tickets from PR title, body, and commits
+            all_pr_text="$pr_title $pr_body $pr_commits"
+            pr_tickets=$(extract_linear_tickets "$all_pr_text")
+            
+            if [ -n "$pr_tickets" ]; then
+                echo "$pr_tickets" >> "$tickets_file"
+            fi
+            
+            # Store PR data: pr_number:type:tickets:title
+            echo "$pr_number:$pr_type:$pr_tickets:$pr_title" >> "$pr_data_file"
         fi
     fi
 done <<< "$commits_in_promotion"
 
-# Remove duplicates and sort
-unique_tickets=$(echo "$all_tickets" | tr ' ' '\n' | grep -v '^$' | sort -u -t'-' -k2,2n | tr '\n' ' ')
-unique_tickets=$(echo "$unique_tickets" | sed 's/^ *//;s/ *$//')
+# Check if we found any PRs
+if [ ! -s "$pr_data_file" ]; then
+    echo "No merged PRs found in commit range"
+    exit 0
+fi
+
+echo "Found $(wc -l < "$pr_data_file" | tr -d ' ') merged PRs to promote"
+
+# Remove duplicates and sort tickets
+all_tickets=$(cat "$tickets_file" | tr ' ' '\n' | grep '^ENG-[0-9][0-9]*$' | sort -u -t'-' -k2,2n | tr '\n' ' ')
+unique_tickets=$(echo "$all_tickets" | sed 's/^ *//;s/ *$//')
 
 if [ -n "$unique_tickets" ]; then
     ticket_list="[$unique_tickets]"
@@ -116,17 +176,66 @@ fi
 
 pr_title="$head_branch -> $target_branch $ticket_list"
 
-# Simple PR body with commit list
-pr_body="# Changes"$'\n\n'
-counter=1
-while IFS= read -r line; do
-    if [ -n "$line" ]; then
-        commit_msg=$(echo "$line" | cut -d' ' -f2-)
-        commit_hash=$(echo "$line" | cut -d' ' -f1 | cut -c1-7)
-        pr_body="$pr_body$counter. $commit_msg ($commit_hash)"$'\n'
-        counter=$((counter + 1))
+# Generate PR body categorized by type
+pr_body_file=$(mktemp)
+
+# Process each type in priority order
+for type in feat fix perf refactor docs style test build ci chore; do
+    # Check if this type has any PRs
+    type_prs=$(grep "^[^:]*:$type:" "$pr_data_file" 2>/dev/null || echo "")
+    
+    if [ -n "$type_prs" ]; then
+        category_name=$(get_pr_category_name "$type")
+        echo "# $category_name" >> "$pr_body_file"
+        echo "" >> "$pr_body_file"
+        
+        # Create temporary file for sorting this type's PRs
+        type_prs_file=$(mktemp)
+        
+        echo "$type_prs" | while IFS=':' read -r pr_number pr_type pr_tickets pr_title_text; do
+            if [ -n "$pr_tickets" ]; then
+                # Sort by first ticket number
+                first_ticket=$(echo "$pr_tickets" | cut -d' ' -f1)
+                ticket_num=$(echo "$first_ticket" | sed 's/ENG-//')
+                echo "$ticket_num:$pr_number:$pr_tickets:$pr_title_text" >> "$type_prs_file"
+            else
+                # PRs without tickets go at the end
+                echo "99999:$pr_number::$pr_title_text" >> "$type_prs_file"
+            fi
+        done
+        
+        # Sort and format PRs for this type
+        sorted_prs_file=$(mktemp)
+        sort -t':' -k1,1n "$type_prs_file" > "$sorted_prs_file"
+        
+        counter=1
+        while IFS=':' read -r sort_key pr_number pr_tickets pr_title_text; do
+            if [ -n "$pr_tickets" ]; then
+                # Format tickets as links
+                ticket_links=""
+                for ticket in $pr_tickets; do
+                    if [ -n "$ticket_links" ]; then
+                        ticket_links="$ticket_links, "
+                    fi
+                    ticket_links="$ticket_links[$ticket](https://linear.app/$LINEAR_TEAM/issue/$ticket)"
+                done
+                echo "$counter. $ticket_links - $pr_title_text (#$pr_number)" >> "$pr_body_file"
+            else
+                echo "$counter. $pr_title_text (#$pr_number)" >> "$pr_body_file"
+            fi
+            counter=$((counter + 1))
+        done < "$sorted_prs_file"
+        
+        rm -f "$sorted_prs_file"
+        
+        echo "" >> "$pr_body_file"
+        rm -f "$type_prs_file"
     fi
-done <<< "$commits_in_promotion"
+done
+
+# Read the generated PR body
+pr_body=$(cat "$pr_body_file")
+rm -f "$pr_body_file"
 
 if [ -n "$existing_pr" ]; then
     echo "Updating existing PR #$existing_pr..."
@@ -164,4 +273,5 @@ else
 fi
 
 # Cleanup
+rm -f "$pr_data_file" "$tickets_file" 2>/dev/null || true
 rm -f /tmp/promote_* 2>/dev/null || true

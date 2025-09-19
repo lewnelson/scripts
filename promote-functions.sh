@@ -7,7 +7,39 @@ function get_repo_name() {
 
 function extract_linear_tickets() {
     local text="$1"
-    echo "$text" | grep -oE '\[ENG-[0-9]+\]' | sed 's/\[\(.*\)\]/\1/' | sort -u -t'-' -k2,2n | tr '\n' ' ' | sed 's/ $//'
+    local prefixes="$2"
+    
+    # Default to ENG if no prefixes specified
+    if [ -z "$prefixes" ]; then
+        prefixes="ENG"
+    fi
+    
+    # Process each prefix and collect all matching tickets
+    local all_tickets=""
+    local IFS=' '
+    for prefix in $prefixes; do
+        # Convert to uppercase for pattern matching
+        local upper_prefix=$(echo "$prefix" | tr '[:lower:]' '[:upper:]')
+        
+        # Extract tickets in both [PREFIX-XXX] and PREFIX-XXX formats (case-insensitive)
+        local prefix_tickets=$(
+            {
+                echo "$text" | grep -ioE "\[$upper_prefix-[0-9]+\]" | sed 's/\[\(.*\)\]/\1/' | tr '[:lower:]' '[:upper:]'
+                echo "$text" | grep -ioE "\b$upper_prefix-[0-9]+\b" | tr '[:lower:]' '[:upper:]'
+            } | tr '\n' ' '
+        )
+        
+        if [ -n "$prefix_tickets" ]; then
+            if [ -z "$all_tickets" ]; then
+                all_tickets="$prefix_tickets"
+            else
+                all_tickets="$all_tickets $prefix_tickets"
+            fi
+        fi
+    done
+    
+    # Deduplicate, sort by prefix and number
+    echo "$all_tickets" | tr ' ' '\n' | grep -v '^$' | sort -u -t'-' -k1,1 -k2,2n | tr '\n' ' ' | sed 's/ $//'
 }
 
 function get_commit_type() {

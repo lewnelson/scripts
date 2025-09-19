@@ -6,11 +6,12 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/promote-functions.sh"
 
 function usage() {
-    echo "Usage: $0 [--dry-run] [--linear-team=<team>] <stage|main>"
-    echo "  --dry-run:             Show what would be done without making changes"
-    echo "  --linear-team=<team>:  Linear team name for ticket links (required)"
-    echo "  stage:                 Promote from develop to stage"
-    echo "  main:                  Promote from stage to main"
+    echo "Usage: $0 [--dry-run] [--linear-org=<org>] [--linear-identifier=<id>]... <stage|main>"
+    echo "  --dry-run:                    Show what would be done without making changes"
+    echo "  --linear-org=<org>:           Linear organization name for ticket links (required)"
+    echo "  --linear-identifier=<id>:     Linear ticket identifier (e.g., ENG, DEV). Can be used multiple times (required)"
+    echo "  stage:                        Promote from develop to stage"
+    echo "  main:                         Promote from stage to main"
     exit 1
 }
 
@@ -21,7 +22,8 @@ function get_repo_name() {
 
 # Parse arguments
 DRY_RUN=false
-LINEAR_TEAM=""
+LINEAR_ORG=""
+LINEAR_IDENTIFIERS=""
 target=""
 
 while [[ $# -gt 0 ]]; do
@@ -30,8 +32,19 @@ while [[ $# -gt 0 ]]; do
             DRY_RUN=true
             shift
             ;;
-        --linear-team=*)
-            LINEAR_TEAM="${1#*=}"
+        --linear-org=*)
+            LINEAR_ORG="${1#*=}"
+            shift
+            ;;
+        --linear-identifier=*)
+            identifier="${1#*=}"
+            if [ -n "$identifier" ]; then
+                if [ -z "$LINEAR_IDENTIFIERS" ]; then
+                    LINEAR_IDENTIFIERS="$identifier"
+                else
+                    LINEAR_IDENTIFIERS="$LINEAR_IDENTIFIERS $identifier"
+                fi
+            fi
             shift
             ;;
         --help|-h)
@@ -54,11 +67,22 @@ if [ -z "$target" ]; then
     usage
 fi
 
-if [ -z "$LINEAR_TEAM" ]; then
-    echo "Error: --linear-team is required"
-    echo "Example: $0 --linear-team=mazedesignhq stage"
+if [ -z "$LINEAR_ORG" ]; then
+    echo "Error: --linear-org is required"
+    echo "Example: $0 --linear-org=mazedesignhq --linear-identifier=ENG stage"
     usage
 fi
+
+if [ -z "$LINEAR_IDENTIFIERS" ]; then
+    echo "Error: At least one --linear-identifier is required"
+    echo "Example: $0 --linear-org=mazedesignhq --linear-identifier=ENG --linear-identifier=DEV stage"
+    usage
+fi
+
+# Deduplicate identifiers and convert to uppercase
+LINEAR_IDENTIFIERS=$(echo "$LINEAR_IDENTIFIERS" | tr ' ' '\n' | tr '[:lower:]' '[:upper:]' | sort -u | tr '\n' ' ' | sed 's/ $//')
+
+echo "Using Linear identifiers: $LINEAR_IDENTIFIERS"
 
 case "$target" in
     "stage")
@@ -144,7 +168,7 @@ while IFS= read -r line; do
             
             # Extract tickets from PR title, body, and commits
             all_pr_text="$pr_title $pr_body $pr_commits"
-            pr_tickets=$(extract_linear_tickets "$all_pr_text")
+            pr_tickets=$(extract_linear_tickets "$all_pr_text" "$LINEAR_IDENTIFIERS")
             
             if [ -n "$pr_tickets" ]; then
                 echo "$pr_tickets" >> "$tickets_file"
@@ -165,7 +189,18 @@ fi
 echo "Found $(wc -l < "$pr_data_file" | tr -d ' ') merged PRs to promote"
 
 # Remove duplicates and sort tickets
-all_tickets=$(cat "$tickets_file" | tr ' ' '\n' | grep '^ENG-[0-9][0-9]*$' | sort -u -t'-' -k2,2n | tr '\n' ' ')
+# Build regex pattern for all identifiers
+identifier_pattern=""
+for identifier in $LINEAR_IDENTIFIERS; do
+    upper_identifier=$(echo "$identifier" | tr '[:lower:]' '[:upper:]')
+    if [ -z "$identifier_pattern" ]; then
+        identifier_pattern="^$upper_identifier-[0-9][0-9]*$"
+    else
+        identifier_pattern="$identifier_pattern|^$upper_identifier-[0-9][0-9]*$"
+    fi
+done
+
+all_tickets=$(cat "$tickets_file" | tr ' ' '\n' | grep -E "$identifier_pattern" | sort -u -t'-' -k1,1 -k2,2n | tr '\n' ' ')
 unique_tickets=$(echo "$all_tickets" | sed 's/^ *//;s/ *$//')
 
 if [ -n "$unique_tickets" ]; then
@@ -217,7 +252,7 @@ for type in feat fix perf refactor docs style test build ci chore; do
                     if [ -n "$ticket_links" ]; then
                         ticket_links="$ticket_links, "
                     fi
-                    ticket_links="$ticket_links[$ticket](https://linear.app/$LINEAR_TEAM/issue/$ticket)"
+                    ticket_links="$ticket_links[$ticket](https://linear.app/$LINEAR_ORG/issue/$ticket)"
                 done
                 echo "$counter. $ticket_links - $pr_title_text (#$pr_number)" >> "$pr_body_file"
             else

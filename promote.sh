@@ -131,11 +131,17 @@ echo "Finding merged PRs for promotion..."
 # Create temporary files for PR data
 pr_data_file=$(mktemp)
 tickets_file=$(mktemp)
+processed_commits_file=$(mktemp)
 
 # Find all merged PRs in the commit range
 while IFS= read -r line; do
     if [ -n "$line" ]; then
         commit_hash=$(echo "$line" | cut -d' ' -f1)
+        
+        # Skip if this commit has already been processed as part of another PR
+        if grep -q "^$commit_hash$" "$processed_commits_file" 2>/dev/null; then
+            continue
+        fi
         
         # Find PR that contains this commit
         pr_number=$(gh pr list --repo "$repo_name" --search "$commit_hash" --state merged --json number --jq '.[0].number' 2>/dev/null || echo "")
@@ -143,39 +149,51 @@ while IFS= read -r line; do
         if [ -n "$pr_number" ] && ! grep -q "^$pr_number:" "$pr_data_file" 2>/dev/null; then
             echo "Processing PR #$pr_number..."
             
-            # Get PR details
-            pr_title=$(gh pr view "$pr_number" --repo "$repo_name" --json title --jq '.title')
-            pr_body=$(gh pr view "$pr_number" --repo "$repo_name" --json body --jq '.body')
+            # Get PR details including all commits in one call
+            pr_details=$(gh pr view "$pr_number" --repo "$repo_name" --json title,body,commits --jq '"\(.title)|\(.body)|\(.commits | map(.oid) | join(","))|\(.commits | map(.messageHeadline) | join("|||"))"' 2>/dev/null || echo "")
             
-            # Get all commits from this PR to determine type
-            pr_commits=$(gh pr view "$pr_number" --repo "$repo_name" --json commits --jq '.commits[].messageHeadline')
-            
-            # Determine PR type based on commits (highest priority wins)
-            pr_type="chore"
-            best_priority=100
-            
-            while IFS= read -r commit_msg; do
-                if [ -n "$commit_msg" ]; then
-                    commit_type=$(get_commit_type "$commit_msg")
-                    commit_priority=$(get_pr_priority "$commit_type")
-                    
-                    if [ "$commit_priority" -lt "$best_priority" ]; then
-                        pr_type="$commit_type"
-                        best_priority="$commit_priority"
+            if [ -n "$pr_details" ]; then
+                pr_title=$(echo "$pr_details" | cut -d'|' -f1)
+                pr_body=$(echo "$pr_details" | cut -d'|' -f2)
+                pr_commit_oids=$(echo "$pr_details" | cut -d'|' -f3)
+                pr_commit_messages=$(echo "$pr_details" | cut -d'|' -f4)
+                
+                # Mark all commits in this PR as processed
+                echo "$pr_commit_oids" | tr ',' '\n' | while read -r commit_oid; do
+                    if [ -n "$commit_oid" ]; then
+                        echo "$commit_oid" >> "$processed_commits_file"
                     fi
+                done
+                
+                # Determine PR type based on commits (highest priority wins)
+                pr_type="chore"
+                best_priority=100
+                
+                # Process commit messages (separated by |||)
+                pr_commits=$(echo "$pr_commit_messages" | tr '|||' '\n')
+                while IFS= read -r commit_msg; do
+                    if [ -n "$commit_msg" ]; then
+                        commit_type=$(get_commit_type "$commit_msg")
+                        commit_priority=$(get_pr_priority "$commit_type")
+                        
+                        if [ "$commit_priority" -lt "$best_priority" ]; then
+                            pr_type="$commit_type"
+                            best_priority="$commit_priority"
+                        fi
+                    fi
+                done <<< "$pr_commits"
+                
+                # Extract tickets from PR title, body, and commits
+                all_pr_text="$pr_title $pr_body $pr_commits"
+                pr_tickets=$(extract_linear_tickets "$all_pr_text" "$LINEAR_IDENTIFIERS")
+                
+                if [ -n "$pr_tickets" ]; then
+                    echo "$pr_tickets" >> "$tickets_file"
                 fi
-            done <<< "$pr_commits"
-            
-            # Extract tickets from PR title, body, and commits
-            all_pr_text="$pr_title $pr_body $pr_commits"
-            pr_tickets=$(extract_linear_tickets "$all_pr_text" "$LINEAR_IDENTIFIERS")
-            
-            if [ -n "$pr_tickets" ]; then
-                echo "$pr_tickets" >> "$tickets_file"
+                
+                # Store PR data: pr_number:type:tickets:title
+                echo "$pr_number:$pr_type:$pr_tickets:$pr_title" >> "$pr_data_file"
             fi
-            
-            # Store PR data: pr_number:type:tickets:title
-            echo "$pr_number:$pr_type:$pr_tickets:$pr_title" >> "$pr_data_file"
         fi
     fi
 done <<< "$commits_in_promotion"
@@ -308,5 +326,5 @@ else
 fi
 
 # Cleanup
-rm -f "$pr_data_file" "$tickets_file" 2>/dev/null || true
+rm -f "$pr_data_file" "$tickets_file" "$processed_commits_file" 2>/dev/null || true
 rm -f /tmp/promote_* 2>/dev/null || true

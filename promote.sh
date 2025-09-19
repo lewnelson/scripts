@@ -159,13 +159,13 @@ fi
 if [ -z "$TEST_TEMP_DIR" ] && [ -z "$BATS_TEST_DIRNAME" ]; then
     if [ -z "$LINEAR_ORG" ]; then
         echo "Error: --linear-org is required"
-        echo "Example: $0 --linear-org=mazedesignhq --linear-identifier=ENG stage"
+        echo "Example: $0 --linear-org=myorg --linear-identifier=ENG stage"
         usage
     fi
 
     if [ -z "$LINEAR_IDENTIFIERS" ]; then
         echo "Error: At least one --linear-identifier is required"
-        echo "Example: $0 --linear-org=mazedesignhq --linear-identifier=ENG --linear-identifier=DEV stage"
+        echo "Example: $0 --linear-org=myorg --linear-identifier=ENG --linear-identifier=DEV stage"
         usage
     fi
 else
@@ -259,18 +259,19 @@ while IFS= read -r line; do
             echo "Processing PR #$pr_number..."
             
             # Get PR details including all commits and base branch in one call
-            pr_details=$(gh pr view "$pr_number" --repo "$repo_name" --json title,body,baseRefName,commits 2>/dev/null || echo "{}")
+            pr_details=$(gh pr view "$pr_number" --repo "$repo_name" --json title,body,baseRefName,commits,headRefName 2>/dev/null || echo "{}")
             
             if [ -n "$pr_details" ] && [ "$pr_details" != "{}" ]; then
                 pr_title=$(echo "$pr_details" | jq -r '.title // ""')
                 pr_body=$(echo "$pr_details" | jq -r '.body // ""')
                 pr_base_ref=$(echo "$pr_details" | jq -r '.baseRefName // ""')
+                pr_head_ref=$(echo "$pr_details" | jq -r '.headRefName // ""')
                 pr_commit_oids=$(echo "$pr_details" | jq -r '.commits[]?.oid // empty' | tr '\n' ' ' | sed 's/ $//')
                 pr_commit_messages=$(echo "$pr_details" | jq -r '.commits[]?.messageHeadline // empty' | tr '\n' '\n')
 
                 # Skip promotion PRs (develop->stage) when promoting stage->main
                 # These are PRs that targeted stage and represent bulk promotions
-                if [ "$target_branch" = "main" ] && [ "$pr_base_ref" = "stage" ]; then
+                if [ "$target_branch" = "main" ] && [ "$pr_base_ref" = "stage" ] && [ "$pr_head_ref" = "develop" ]; then
                     echo "Skipping PR #$pr_number (promotion PR develop->stage, showing individual PRs instead)"
                     continue
                 fi

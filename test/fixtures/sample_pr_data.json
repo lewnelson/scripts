@@ -55,10 +55,10 @@
   ],
   "expected_promotion_stage": {
     "title": "develop -> stage [ENG-123 ENG-456 ENG-789]",
-    "body": "# Features\n\n1. [ENG-456](https://linear.app/mazedesignhq/issue/ENG-456)\n\n# Fixes\n\n1. [ENG-123](https://linear.app/mazedesignhq/issue/ENG-123)\n\n# Refactoring\n\n1. [ENG-789](https://linear.app/mazedesignhq/issue/ENG-789)\n\n# Chores\n\n1. #125\n\n"
+    "body": "# Features\n\n1. [ENG-456](https://linear.app/myorg/issue/ENG-456)\n\n# Fixes\n\n1. [ENG-123](https://linear.app/myorg/issue/ENG-123)\n\n# Refactoring\n\n1. [ENG-789](https://linear.app/myorg/issue/ENG-789)\n\n# Chores\n\n1. #125\n\n"
   },
   "expected_promotion_main": {
     "title": "stage -> main [ENG-123 ENG-456 ENG-789]",
-    "body": "# Features\n\n1. [ENG-456](https://linear.app/mazedesignhq/issue/ENG-456)\n\n# Fixes\n\n1. [ENG-123](https://linear.app/mazedesignhq/issue/ENG-123)\n\n# Refactoring\n\n1. [ENG-789](https://linear.app/mazedesignhq/issue/ENG-789)\n\n# Chores\n\n1. #125\n\n"
+    "body": "# Features\n\n1. [ENG-456](https://linear.app/myorg/issue/ENG-456)\n\n# Fixes\n\n1. [ENG-123](https://linear.app/myorg/issue/ENG-123)\n\n# Refactoring\n\n1. [ENG-789](https://linear.app/myorg/issue/ENG-789)\n\n# Chores\n\n1. #125\n\n"
   }
 }

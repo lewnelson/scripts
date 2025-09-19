@@ -2,7 +2,7 @@
 
 function get_repo_name() {
     local repo_url="$1"
-    echo "$repo_url" | sed -E 's/.*[\/:]([^\/]+\/[^\/]+)\.git$/\1/'
+    echo "$repo_url" | sed -E 's/.*[\/:]([^\/]+\/[^\/]+)\.git$/\1/' 2>/dev/null || echo "$repo_url" | sed -r 's/.*[\/:]([^\/]+\/[^\/]+)\.git$/\1/'
 }
 
 function extract_linear_tickets() {

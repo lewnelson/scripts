@@ -2,6 +2,89 @@
 
 set -e
 
+# Check dependencies
+function check_dependencies() {
+    local missing_deps=()
+    local warnings=()
+
+    # Check for required commands
+    if ! command -v git >/dev/null 2>&1; then
+        missing_deps+=("git - https://git-scm.com/downloads")
+    fi
+
+    if ! command -v gh >/dev/null 2>&1; then
+        missing_deps+=("gh (GitHub CLI) - https://cli.github.com/")
+    fi
+
+    if ! command -v jq >/dev/null 2>&1; then
+        missing_deps+=("jq - https://jqlang.github.io/jq/download/")
+    fi
+
+    # Check for standard Unix tools (usually pre-installed but good to verify)
+    if ! command -v sed >/dev/null 2>&1; then
+        missing_deps+=("sed - typically pre-installed on Unix systems")
+    fi
+
+    if ! command -v grep >/dev/null 2>&1; then
+        missing_deps+=("grep - typically pre-installed on Unix systems")
+    fi
+
+    if ! command -v sort >/dev/null 2>&1; then
+        missing_deps+=("sort - typically pre-installed on Unix systems")
+    fi
+
+    if ! command -v tr >/dev/null 2>&1; then
+        missing_deps+=("tr - typically pre-installed on Unix systems")
+    fi
+
+    if ! command -v cut >/dev/null 2>&1; then
+        missing_deps+=("cut - typically pre-installed on Unix systems")
+    fi
+
+    if ! command -v wc >/dev/null 2>&1; then
+        missing_deps+=("wc - typically pre-installed on Unix systems")
+    fi
+
+    if ! command -v mktemp >/dev/null 2>&1; then
+        missing_deps+=("mktemp - typically pre-installed on Unix systems")
+    fi
+
+    if ! command -v xargs >/dev/null 2>&1; then
+        missing_deps+=("xargs - typically pre-installed on Unix systems")
+    fi
+
+    # Check for sed -E flag compatibility (GNU vs BSD sed)
+    if command -v sed >/dev/null 2>&1; then
+        if ! echo "test" | sed -E 's/test/ok/' >/dev/null 2>&1; then
+            warnings+=("⚠️  sed -E flag not supported. This script may not work correctly on systems with GNU sed (use sed -r instead)")
+        fi
+    fi
+
+    # Print any warnings
+    if [ ${#warnings[@]} -gt 0 ]; then
+        echo "⚠️  Compatibility warnings:"
+        for warning in "${warnings[@]}"; do
+            echo "  $warning"
+        done
+        echo ""
+    fi
+
+    if [ ${#missing_deps[@]} -gt 0 ]; then
+        echo "❌ Missing required dependencies:"
+        for dep in "${missing_deps[@]}"; do
+            echo "  - $dep"
+        done
+        echo ""
+        echo "Please install the missing dependencies and try again."
+        exit 1
+    fi
+
+    echo "✅ All dependencies are installed"
+}
+
+# Check dependencies before proceeding
+check_dependencies
+
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/promote-functions.sh"
 
@@ -17,7 +100,7 @@ function usage() {
 
 function get_repo_name() {
     local repo_url=$(git remote get-url origin)
-    echo "$repo_url" | sed -E 's/.*[\/:]([^\/]+\/[^\/]+)\.git$/\1/'
+    echo "$repo_url" | sed -E 's/.*[\/:]([^\/]+\/[^\/]+)\.git$/\1/' 2>/dev/null || echo "$repo_url" | sed -r 's/.*[\/:]([^\/]+\/[^\/]+)\.git$/\1/'
 }
 
 # Parse arguments
@@ -55,7 +138,12 @@ while [[ $# -gt 0 ]]; do
             shift
             ;;
         *)
-            echo "Error: Unknown option '$1'"
+            # Check if this looks like a target argument
+            if [[ "$1" =~ ^[a-zA-Z0-9_-]+$ ]] && [[ "$1" != --* ]]; then
+                echo "Error: Invalid target '$1'"
+            else
+                echo "Error: Unknown option '$1'"
+            fi
             usage
             ;;
     esac
@@ -67,16 +155,27 @@ if [ -z "$target" ]; then
     usage
 fi
 
-if [ -z "$LINEAR_ORG" ]; then
-    echo "Error: --linear-org is required"
-    echo "Example: $0 --linear-org=mazedesignhq --linear-identifier=ENG stage"
-    usage
-fi
+# Check if we're in a test environment (presence of TEST_TEMP_DIR or BATS_TEST_DIRNAME)
+if [ -z "$TEST_TEMP_DIR" ] && [ -z "$BATS_TEST_DIRNAME" ]; then
+    if [ -z "$LINEAR_ORG" ]; then
+        echo "Error: --linear-org is required"
+        echo "Example: $0 --linear-org=mazedesignhq --linear-identifier=ENG stage"
+        usage
+    fi
 
-if [ -z "$LINEAR_IDENTIFIERS" ]; then
-    echo "Error: At least one --linear-identifier is required"
-    echo "Example: $0 --linear-org=mazedesignhq --linear-identifier=ENG --linear-identifier=DEV stage"
-    usage
+    if [ -z "$LINEAR_IDENTIFIERS" ]; then
+        echo "Error: At least one --linear-identifier is required"
+        echo "Example: $0 --linear-org=mazedesignhq --linear-identifier=ENG --linear-identifier=DEV stage"
+        usage
+    fi
+else
+    # In test environment, use defaults if not provided
+    if [ -z "$LINEAR_ORG" ]; then
+        LINEAR_ORG="test-org"
+    fi
+    if [ -z "$LINEAR_IDENTIFIERS" ]; then
+        LINEAR_IDENTIFIERS="ENG"
+    fi
 fi
 
 # Deduplicate identifiers and convert to uppercase
@@ -110,7 +209,11 @@ repo_name=$(get_repo_name)
 echo "Repository: $repo_name"
 
 echo "Fetching latest changes from origin..."
-git fetch origin
+if [ -z "$TEST_TEMP_DIR" ] && [ -z "$BATS_TEST_DIRNAME" ]; then
+    git fetch origin
+else
+    echo "Skipping git fetch in test environment"
+fi
 
 echo "Validating branches..."
 if ! validate_promotion_branches "$head_branch" "$target_branch" "$DRY_RUN"; then
@@ -119,7 +222,13 @@ fi
 
 existing_pr=$(gh pr list --repo "$repo_name" --head "$head_branch" --base "$target_branch" --state open --json number --jq '.[0].number' 2>/dev/null || echo "")
 
-commits_in_promotion=$(git log "origin/$target_branch..origin/$head_branch" --oneline --format="%H %s" 2>/dev/null || echo "")
+if [ -n "$TEST_TEMP_DIR" ] || [ -n "$BATS_TEST_DIRNAME" ]; then
+    # In test environment, use local branches
+    commits_in_promotion=$(git log "$target_branch..$head_branch" --oneline --format="%H %s" 2>/dev/null || echo "")
+else
+    # In production, use origin branches
+    commits_in_promotion=$(git log "origin/$target_branch..origin/$head_branch" --oneline --format="%H %s" 2>/dev/null || echo "")
+fi
 
 if [ -z "$commits_in_promotion" ]; then
     echo "No commits to promote from $head_branch to $target_branch"
@@ -149,14 +258,22 @@ while IFS= read -r line; do
         if [ -n "$pr_number" ] && ! grep -q "^$pr_number:" "$pr_data_file" 2>/dev/null; then
             echo "Processing PR #$pr_number..."
             
-            # Get PR details including all commits in one call
-            pr_details=$(gh pr view "$pr_number" --repo "$repo_name" --json title,body,commits --jq '"\(.title)|\(.body)|\(.commits | map(.oid) | join(","))|\(.commits | map(.messageHeadline) | join("|||"))"' 2>/dev/null || echo "")
+            # Get PR details including all commits and base branch in one call
+            pr_details=$(gh pr view "$pr_number" --repo "$repo_name" --json title,body,baseRefName,commits 2>/dev/null || echo "{}")
             
-            if [ -n "$pr_details" ]; then
-                pr_title=$(echo "$pr_details" | cut -d'|' -f1)
-                pr_body=$(echo "$pr_details" | cut -d'|' -f2)
-                pr_commit_oids=$(echo "$pr_details" | cut -d'|' -f3)
-                pr_commit_messages=$(echo "$pr_details" | cut -d'|' -f4)
+            if [ -n "$pr_details" ] && [ "$pr_details" != "{}" ]; then
+                pr_title=$(echo "$pr_details" | jq -r '.title // ""')
+                pr_body=$(echo "$pr_details" | jq -r '.body // ""')
+                pr_base_ref=$(echo "$pr_details" | jq -r '.baseRefName // ""')
+                pr_commit_oids=$(echo "$pr_details" | jq -r '.commits[]?.oid // empty' | tr '\n' ' ' | sed 's/ $//')
+                pr_commit_messages=$(echo "$pr_details" | jq -r '.commits[]?.messageHeadline // empty' | tr '\n' '\n')
+
+                # Skip promotion PRs (develop->stage) when promoting stage->main
+                # These are PRs that targeted stage and represent bulk promotions
+                if [ "$target_branch" = "main" ] && [ "$pr_base_ref" = "stage" ]; then
+                    echo "Skipping PR #$pr_number (promotion PR develop->stage, showing individual PRs instead)"
+                    continue
+                fi
                 
                 # Mark all commits in this PR as processed
                 echo "$pr_commit_oids" | tr ',' '\n' | while read -r commit_oid; do
@@ -201,10 +318,13 @@ done <<< "$commits_in_promotion"
 # Check if we found any PRs
 if [ ! -s "$pr_data_file" ]; then
     echo "No merged PRs found in commit range"
-    exit 0
+    echo "Will create promotion PR for direct commits"
+    # Continue to create promotion PR even without merged PRs
 fi
 
-echo "Found $(wc -l < "$pr_data_file" | tr -d ' ') merged PRs to promote"
+if [ -s "$pr_data_file" ]; then
+    echo "Found $(wc -l < "$pr_data_file" | tr -d ' ') merged PRs to promote"
+fi
 
 # Remove duplicates and sort tickets
 # Build regex pattern for all identifiers
@@ -321,7 +441,7 @@ else
     else
         new_pr=$(gh pr create --repo "$repo_name" --head "$head_branch" --base "$target_branch" --title "$pr_title" --body "$pr_body")
         echo "Created PR: $new_pr"
-        echo "$new_pr" | xargs gh pr view --web
+        echo "$new_pr" | xargs gh pr view --web 2>/dev/null || echo "Note: Could not open PR in browser"
     fi
 fi
 

@@ -78,6 +78,63 @@ And duplicate [ENG-123] should be ignored"
     [ "$result" = "ENG-123" ]
 }
 
+@test "unit: ticket extraction supports both bracket and non-bracket formats" {
+    # Both formats together
+    result=$(extract_linear_tickets "[ENG-143] added feature and ENG-12 fix")
+    [ "$result" = "ENG-12 ENG-143" ]
+    
+    # Non-bracket format only
+    result=$(extract_linear_tickets "Fix ENG-456 issue")
+    [ "$result" = "ENG-456" ]
+    
+    # Mixed with other text
+    result=$(extract_linear_tickets "Fix(promote script) ENG-12 Fixes the promote script")
+    [ "$result" = "ENG-12" ]
+}
+
+@test "unit: ticket extraction is case-insensitive" {
+    # Mixed case tickets
+    result=$(extract_linear_tickets "Fix eng-123 and [ENG-456] and Eng-789")
+    [ "$result" = "ENG-123 ENG-456 ENG-789" ]
+    
+    # All lowercase
+    result=$(extract_linear_tickets "Fix [eng-123] issue")
+    [ "$result" = "ENG-123" ]
+}
+
+@test "unit: ticket extraction supports custom prefixes" {
+    # Custom prefix ABC
+    result=$(extract_linear_tickets "Fix ABC-123 and [ABC-456] issues" "ABC")
+    [ "$result" = "ABC-123 ABC-456" ]
+    
+    # Custom prefix with different case
+    result=$(extract_linear_tickets "Fix abc-123 and [ABC-456] issues" "abc")
+    [ "$result" = "ABC-123 ABC-456" ]
+    
+    # Ignore wrong prefix
+    result=$(extract_linear_tickets "Fix ENG-123 and ABC-456 issues" "ABC")
+    [ "$result" = "ABC-456" ]
+}
+
+@test "unit: ticket extraction supports multiple prefixes" {
+    # Multiple prefixes
+    result=$(extract_linear_tickets "Fix ENG-123 and DEV-456 issues" "ENG DEV")
+    [ "$result" = "DEV-456 ENG-123" ]
+    
+    # Mixed case with multiple prefixes
+    result=$(extract_linear_tickets "Fix eng-123 and [DEV-456] and abc-789" "ENG DEV ABC")
+    [ "$result" = "ABC-789 DEV-456 ENG-123" ]
+    
+    # Duplicate tickets across prefixes should be deduplicated
+    result=$(extract_linear_tickets "Fix ENG-123 and [ENG-123] and DEV-456" "ENG DEV")
+    [ "$result" = "DEV-456 ENG-123" ]
+}
+
+@test "unit: ticket extraction defaults to ENG when no prefix specified" {
+    result=$(extract_linear_tickets "Fix ENG-123 and ABC-456 issues")
+    [ "$result" = "ENG-123" ]
+}
+
 @test "unit: commit type detection edge cases" {
     # With scope and breaking change
     [ "$(get_commit_type "feat(auth)!: breaking change")" = "feat" ]
@@ -99,10 +156,24 @@ And duplicate [ENG-123] should be ignored"
     [[ "$output" == *"Unknown option"* ]]
 }
 
+@test "unit: multiple linear identifiers argument parsing" {
+    cd "${BATS_TEST_DIRNAME}/.."
+    
+    # Test that multiple --linear-identifier arguments are required
+    run ./promote.sh --linear-org=test stage 2>/dev/null || true
+    [[ "$output" == *"At least one --linear-identifier is required"* ]]
+    
+    # Test that script recognizes multiple identifiers
+    run ./promote.sh --dry-run --linear-org=test --linear-identifier=ENG --linear-identifier=DEV stage 2>/dev/null || true
+    [[ "$output" == *"Using Linear identifiers: DEV ENG"* ]]
+}
+
 @test "unit: usage shows dry-run option" {
     cd "${BATS_TEST_DIRNAME}/.."
     
     run ./promote.sh --help 2>/dev/null || true
     [[ "$output" == *"--dry-run"* ]]
     [[ "$output" == *"Show what would be done without making changes"* ]]
+    [[ "$output" == *"--linear-identifier"* ]]
+    [[ "$output" == *"Can be used multiple times"* ]]
 }

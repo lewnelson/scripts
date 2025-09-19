@@ -1,0 +1,64 @@
+{
+  "prs": [
+    {
+      "number": 123,
+      "title": "feat: add user authentication [ENG-456]",
+      "body": "This PR implements user authentication functionality.\n\nIncludes:\n- Login form\n- JWT token handling\n- Session management\n\nRelated to [ENG-456]",
+      "commits": [
+        {
+          "hash": "abc123",
+          "message": "feat: add login form [ENG-456]"
+        },
+        {
+          "hash": "def456",
+          "message": "feat: implement JWT handling"
+        }
+      ]
+    },
+    {
+      "number": 124,
+      "title": "fix: resolve memory leak in auth module",
+      "body": "Fixes memory leak that was causing performance issues.\n\nFixes [ENG-123]",
+      "commits": [
+        {
+          "hash": "ghi789",
+          "message": "fix: resolve memory leak [ENG-123]"
+        }
+      ]
+    },
+    {
+      "number": 125,
+      "title": "chore: update dependencies",
+      "body": "Updates various dependencies to latest versions.\n\nNo specific ticket associated.",
+      "commits": [
+        {
+          "hash": "jkl012",
+          "message": "chore: update package.json dependencies"
+        }
+      ]
+    },
+    {
+      "number": 126,
+      "title": "refactor: restructure auth components [ENG-789]",
+      "body": "Refactors authentication components for better maintainability.\n\nSee [ENG-789] for details.",
+      "commits": [
+        {
+          "hash": "mno345",
+          "message": "refactor: split auth components [ENG-789]"
+        },
+        {
+          "hash": "pqr678",
+          "message": "refactor: improve error handling"
+        }
+      ]
+    }
+  ],
+  "expected_promotion_stage": {
+    "title": "develop -> stage [ENG-123 ENG-456 ENG-789]",
+    "body": "# Features\n\n1. [ENG-456](https://linear.app/mazedesignhq/issue/ENG-456)\n\n# Fixes\n\n1. [ENG-123](https://linear.app/mazedesignhq/issue/ENG-123)\n\n# Refactoring\n\n1. [ENG-789](https://linear.app/mazedesignhq/issue/ENG-789)\n\n# Chores\n\n1. #125\n\n"
+  },
+  "expected_promotion_main": {
+    "title": "stage -> main [ENG-123 ENG-456 ENG-789]",
+    "body": "# Features\n\n1. [ENG-456](https://linear.app/mazedesignhq/issue/ENG-456)\n\n# Fixes\n\n1. [ENG-123](https://linear.app/mazedesignhq/issue/ENG-123)\n\n# Refactoring\n\n1. [ENG-789](https://linear.app/mazedesignhq/issue/ENG-789)\n\n# Chores\n\n1. #125\n\n"
+  }
+}

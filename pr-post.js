@@ -50,7 +50,7 @@ const formattedMessage = `
 *Review Request*
 
 :male-construction-worker::skin-tone-3: ${title}
-:github: PR (${fileChanges} file${fileChanges > 1 ? "s" : ""} changed) - ${url}
+:git: PR (${fileChanges} file${fileChanges > 1 ? "s" : ""} changed) - ${url}
 ${linearUrl ? `:linear: Ticket - ${linearUrl}` : ""}
 ${loomUrl ? `:loom: Loom - ${loomUrl}` : ""}
 `;
